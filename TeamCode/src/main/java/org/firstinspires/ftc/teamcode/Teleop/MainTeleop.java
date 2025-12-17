@@ -14,6 +14,8 @@ import com.acmerobotics.roadrunner.ftc.Actions;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 
+import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.teamcode.Robot.ErasmusRobot;
 
 @Config
@@ -26,15 +28,21 @@ public final class MainTeleop extends LinearOpMode {
     boolean rightTriggerPulled = false ;
     boolean leftTriggerPulled = false ;
 
+    ErasmusRobot robot ;
+    public static double LOWSPEED = 0.3 ;
+    public static double HIGHSPEED = 0.8 ;
+    private double speedAdjustment ;
     Action currentAction ;
     TelemetryPacket packet = new TelemetryPacket();
 
     @Override
     public void runOpMode() throws InterruptedException {
+        Pose2d beginPose = new Pose2d(-24, 24, Math.PI);
+
         telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
 
 //        ErasmusRobot robot = new ErasmusRobot(hardwareMap, telemetry) ;
-        ErasmusRobot robot = new ErasmusRobot(this) ;
+        robot = new ErasmusRobot(this, beginPose) ;
 
 
         waitForStart();
@@ -67,6 +75,7 @@ public final class MainTeleop extends LinearOpMode {
                 leftTriggerPulled = false ;
             }
 
+            else if (gamepad1.xWasPressed()) robot.huskyReadPattern() ;
             else if (gamepad1.y) robot.feedServo.setPosition(FEEDERUP);   // B
             else if (gamepad1.yWasReleased()) robot.feedServo.setPosition(FEEDERDOWN);  // B released
 
@@ -130,12 +139,27 @@ public final class MainTeleop extends LinearOpMode {
 
 
             telemetry.addData("Shooter Velocity (OpMode)", SHOOTERSPEED) ;
-//            telemetry.addData("Motor Velocity = ", shooterMotor.getVelocity()) ;
+            telemetry.addData("Motor Velocity = ", robot.shooterMotor.getVelocity()) ;
             telemetry.addData("Index", robot.indexerCurrentPosition) ;
             telemetry.addData("Green Index", robot.greenIndex) ;
             telemetry.addData("Pattern", robot.pattern) ;
-            telemetry.addData("Last Reading", robot.lastColorReading) ;
+            telemetry.addData("Distance", robot.lastDistanceReading) ;
+            robot.drive.updatePoseEstimate();
+
+            Pose2d pose = robot.drive.localizer.getPose();
+            telemetry.addData("x", pose.position.x);
+            telemetry.addData("y", pose.position.y);
+            telemetry.addData("heading (deg)", Math.toDegrees(pose.heading.toDouble()));
+            telemetry.addData("Current", robot.shooterMotor.getCurrent(CurrentUnit.AMPS)) ;
             updateTelemetry(telemetry);
         }
+    }
+
+    private void clearAction() {
+        currentAction = null ;
+        robot.stopIntake();
+        robot.shutdownShooter();
+        speedAdjustment = HIGHSPEED ;
+
     }
 }

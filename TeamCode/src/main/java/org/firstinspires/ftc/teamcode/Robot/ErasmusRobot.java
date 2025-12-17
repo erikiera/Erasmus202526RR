@@ -8,18 +8,22 @@ import com.acmerobotics.dashboard.config.Config;
 import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
 import com.acmerobotics.roadrunner.Action;
 import com.acmerobotics.roadrunner.InstantAction;
+import com.acmerobotics.roadrunner.ParallelAction;
 import com.acmerobotics.roadrunner.Pose2d;
 import com.acmerobotics.roadrunner.SequentialAction;
 import com.acmerobotics.roadrunner.SleepAction;
+import com.qualcomm.hardware.dfrobot.HuskyLens;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.ColorSensor;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.DistanceSensor;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.hardware.Servo;
 
 import org.firstinspires.ftc.robotcore.external.Telemetry;
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.teamcode.MecanumDrive;
 
 @Config
@@ -36,7 +40,8 @@ public class ErasmusRobot {
     public static double SHOOTERPIDD = 3 ;
     public static double SHOOTERPIDF = 0 ;
     public static double ALPHA = 0.1 ;
-    public static double KP = 0.001 ;
+    public static double KP = 0.0001 ;
+    public static double KP2 = 0.0001 ;
     public static double KV = 1.0/2160 ;
     // Feeder
     public Servo feedServo ;
@@ -47,6 +52,7 @@ public class ErasmusRobot {
     // Indexer
     public Servo indexerServo ;
     public ColorSensor colorSensor ;
+    public DistanceSensor distanceSensor ;
     public int indexerCurrentPosition = 0 ;
     public int[] indexerContents = {0,0,0} ;
     public static double[] indexerPositions = {0.319, 0.390, 0.47} ;
@@ -58,13 +64,13 @@ public class ErasmusRobot {
     } ;
     public static double greenIndex = 1 ;
     public static double pattern = 0 ;
-    public double lastColorReading = 0 ;
-
-
-
+    public double[] aprilTagLookup = {0,0,1,2,3,4} ;
+    public double lastDistanceReading = 6 ;
     // Intake
     DcMotorEx intakeMotor ;
     public static double INTAKEPOWER = 0.8;
+    // HuskyLens
+    private HuskyLens huskyLens;
     // OpMode / Robot
     private HardwareMap hardwareMap ;
     private OpMode opMode ;
@@ -77,6 +83,7 @@ public class ErasmusRobot {
         hardwareMap = opMode.hardwareMap ;
         telemetry = opMode.telemetry ;
         drive = new MecanumDrive(hardwareMap, newPose);
+//        drive.localizer.setPose(newPose);
         // Shooter
         shooterMotor = hardwareMap.get(DcMotorEx.class, "shooterMotor");
         shooterMotor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
@@ -88,9 +95,13 @@ public class ErasmusRobot {
         // Indexer
         indexerServo = hardwareMap.get(Servo.class, "indexerServo") ;
         colorSensor = hardwareMap.get(ColorSensor.class, "colorSensor") ;
+        distanceSensor = hardwareMap.get(DistanceSensor.class, "distanceSensor") ;
         // Intake
         intakeMotor = hardwareMap.get(DcMotorEx.class, "intakeMotor");
         intakeMotor.setDirection(DcMotorSimple.Direction.REVERSE);
+        // HuskyLens
+        huskyLens = hardwareMap.get(HuskyLens.class, "huskylens");
+        huskyLens.selectAlgorithm(HuskyLens.Algorithm.TAG_RECOGNITION);
 
         telemetry.addLine("----- Robot Initialized !!! -----") ;
     }
@@ -122,20 +133,39 @@ public class ErasmusRobot {
         Color.RGBToHSV(colorSensor.red(), colorSensor.green(), colorSensor.blue(), hsvValues);
         return hsvValues[0] ;
     }
+    public boolean ballPresent() {
+        return (distanceSensor.getDistance(DistanceUnit.INCH)<3.1) ;
+    }
     public void startIntake() {
         intakeMotor.setPower(INTAKEPOWER);
     }
     public void stopIntake() {
         intakeMotor.setPower(0);
     }
+    public double huskyReadPattern() {
+        HuskyLens.Block[] blocks = huskyLens.blocks();
+        for (HuskyLens.Block block : blocks ) {
+            if (block.id>0 && block.id<4) pattern = aprilTagLookup[block.id] ;
+        }
+        return pattern ;
+    }
 
     // =================== Actions =======================
     // --------- Higher Level Actions --------------
     public Action shootBall() { // Revs motor and feeds 1 ball
         return new SequentialAction(
+                new ParallelAction(
+                    new ShooterControl(),
+                    new SleepAction(0.5)
+                ),
+                    feedAction()
+                ) ;
+    }
+    public Action shootBlank() { // Revs motor and feeds 1 ball
+        return new SequentialAction(
 //                new StartShooter(),
                 new ShooterControl(),
-                feedAction()
+                new SleepAction(0.8)
         ) ;
     }
 
@@ -166,13 +196,12 @@ public class ErasmusRobot {
     public Action shootAll() { // Shoots all 3 balls and resets intake
         return new SequentialAction(
                 new InstantAction(()->moveIndexer((int) shootOrder[(int)pattern][(int)greenIndex][0])),
-                new SleepAction(0.3),
+//                new SleepAction(0.3),
                 shootBall(),
                 new InstantAction(()->moveIndexer((int) shootOrder[(int)pattern][(int)greenIndex][1])),
-                new SleepAction(0.5),
+//                new SleepAction(0.5), // TODO: We could have a greenlight flag in the robot class
                 shootBall(),
-                new InstantAction(()->moveIndexer((int) shootOrder[(int)pattern][(int)greenIndex][2])),
-                new SleepAction(0.5),
+//                new InstantAction(()->moveIndexer((int) shootOrder[(int)pattern][(int)greenIndex][2])), new SleepAction(0.5),
                 shootBall(),
                 new SleepAction(0.7),
                 new InstantAction(()->shutdownShooter()),
@@ -256,11 +285,13 @@ public class ErasmusRobot {
         public boolean run(@NonNull TelemetryPacket telemetryPacket) {
             if (!started) {
                 started = true;
+                startTime = opMode.getRuntime();
                 targetSpeed = SHOOTERSPEED;
                 shooterMotor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
             }
             telemetry.addData("Shooter Velocity", shooterMotor.getVelocity());
             if (Math.abs(targetSpeed - shooterMotor.getVelocity()) < SHOOTERDELTA) {
+                telemetry.addData("Time to Shoot", opMode.getRuntime()-startTime) ;
                 return false ;
             }
                 // We are at the desired speed.
@@ -273,6 +304,46 @@ public class ErasmusRobot {
         }
     }
 
+    private class ShooterControl2 implements Action {
+        private boolean started = false;
+        private double targetSpeed = SHOOTERSPEED;
+        private double startTime = 0;
+        private double levelTime = 0;
+        private double cutoffTime = SHOOTERCUTOFFTIME;
+        double smoothed = 0;
+        double pPower = 0 ;
+        double smoothedTarget = 0 ;
+        // Constructors
+        public ShooterControl2() {
+        }
+        public ShooterControl2(double newTargetSpeed) {
+            this();
+            targetSpeed = newTargetSpeed; // TODO: Create way to alter this during the opMode. Telemetry packet??
+        }
+        @Override
+        public boolean run(@NonNull TelemetryPacket telemetryPacket) {
+            if (!started) {
+                started = true;
+                startTime = opMode.getRuntime();
+                targetSpeed = SHOOTERSPEED;
+                shooterMotor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+            }
+            telemetry.addData("Shooter Velocity", shooterMotor.getVelocity());
+            if (Math.abs(targetSpeed - shooterMotor.getVelocity()) < SHOOTERDELTA) {
+                telemetry.addData("Time to Shoot", opMode.getRuntime()-startTime) ;
+                return false ;
+            }
+            smoothedTarget = (1-ALPHA) * smoothedTarget + ALPHA*(targetSpeed ) ;
+            smoothed = (1 - ALPHA) * smoothed + ALPHA * shooterMotor.getVelocity();
+            pPower = smoothedTarget - smoothed ;
+//            pPower = (1-ALPHA)*pPower + ALPHA*(smoothedTarget - smoothed) ;
+            telemetry.addData("pPower" , pPower) ;
+            shooterMotor.setPower(smoothedTarget * KV  +  pPower*KP);
+//            shooterMotor.setPower(targetSpeed * KV + (targetSpeed - smoothed) * KP);
+            return true;
+        }
+    }
+
 
     private class IntakeOne implements Action {
         private boolean started = false;
@@ -280,13 +351,14 @@ public class ErasmusRobot {
         public boolean run(@NonNull TelemetryPacket telemetryPacket) {
             if (!started) {
                 started = true;
+                lastDistanceReading = 6 ;
                 startIntake() ;
             }
-            if (colorSensor.green()>110) {
+            lastDistanceReading = 0.1*distanceSensor.getDistance(DistanceUnit.INCH) + 0.9*lastDistanceReading ;
+
+            if (lastDistanceReading<3) { //TODO: Because the REV Distance Sensor is a piece of crap
 //                double startTime = opMode.getRuntime() ;
 //                while (opMode.getRuntime() < startTime + 0.2) {}
-                lastColorReading = colorSensor.green() ;
-//                if (colorSensor.green() > 180) greenIndex = indexerCurrentPosition ;
                 if (readColorSensorHSV() < 180) greenIndex = indexerCurrentPosition ;
                 stopIntake() ;
                 return false ;
