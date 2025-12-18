@@ -31,18 +31,18 @@ public class ErasmusRobot {
     // ==================== Declarations =========================
     // Shooter
     public DcMotorEx shooterMotor ;
-    public static double SHOOTERSPEED = 1800;
-    public static double SHOOTERDELTA = 40 ;
-    public static double SHOOTERCUTOFFTIME = 4000 ;  // Milliseconds
-    public static double LEVELTIME = 1000 ;
+    public static double SHOOTERSPEED = 1400;
+    public static double SHOOTERMARGIN = 25 ;
+    public static double SHOOTERCUTOFFTIME = 4000 ;  // Milliseconds  // TODO: Remove ??
+    public static double LEVELTIME = 1000 ;   // TODO: Remove ??
     public static double SHOOTERPIDP = 7 ;
     public static double SHOOTERPIDI = 3 ;
     public static double SHOOTERPIDD = 3 ;
     public static double SHOOTERPIDF = 0 ;
     public static double ALPHA = 0.1 ;
-    public static double KP = 0.0001 ;
-    public static double KP2 = 0.0001 ;
-    public static double KV = 1.0/2160 ;
+    public static double KP = 0.0007 ;
+    public static double SLEWRATE = 50 ;
+    public static double KV = 1.0/2160 ;  // TODO: Adjust this so we get there
     // Feeder
     public Servo feedServo ;
     public static double FEEDERUP = 0.40 ;
@@ -66,6 +66,7 @@ public class ErasmusRobot {
     public static double pattern = 0 ;
     public double[] aprilTagLookup = {0,0,1,2,3,4} ;
     public double lastDistanceReading = 6 ;
+    public static double DISTANCE = 2.0;
     // Intake
     DcMotorEx intakeMotor ;
     public static double INTAKEPOWER = 0.8;
@@ -149,6 +150,13 @@ public class ErasmusRobot {
         }
         return pattern ;
     }
+    double slewSpeed(double target, double current) {
+        if (Math.abs(target-current)>SLEWRATE) {
+            if (target>current) return current+SLEWRATE ;
+            else return current - SLEWRATE ;
+        }
+        return target ;
+    }
 
     // =================== Actions =======================
     // --------- Higher Level Actions --------------
@@ -156,7 +164,7 @@ public class ErasmusRobot {
         return new SequentialAction(
                 new ParallelAction(
                     new ShooterControl(),
-                    new SleepAction(0.5)
+                    new SleepAction(0.8)
                 ),
                     feedAction()
                 ) ;
@@ -201,7 +209,7 @@ public class ErasmusRobot {
                 new InstantAction(()->moveIndexer((int) shootOrder[(int)pattern][(int)greenIndex][1])),
 //                new SleepAction(0.5), // TODO: We could have a greenlight flag in the robot class
                 shootBall(),
-//                new InstantAction(()->moveIndexer((int) shootOrder[(int)pattern][(int)greenIndex][2])), new SleepAction(0.5),
+                new InstantAction(()->moveIndexer((int) shootOrder[(int)pattern][(int)greenIndex][2])), new SleepAction(0.5),
                 shootBall(),
                 new SleepAction(0.7),
                 new InstantAction(()->shutdownShooter()),
@@ -253,7 +261,7 @@ public class ErasmusRobot {
                 startTime = opMode.getRuntime();
                 telemetry.addLine("+++ Shooter Revving Up +++");
                 return true;
-            } else if (Math.abs(targetSpeed - shooterMotor.getVelocity()) < SHOOTERDELTA) {
+            } else if (Math.abs(targetSpeed - shooterMotor.getVelocity()) < SHOOTERMARGIN) {
                 // We are at the desired speed.
                 if (levelTime == 0) levelTime = opMode.getRuntime() ;
                 return (opMode.getRuntime() > levelTime + LEVELTIME) ;
@@ -290,7 +298,8 @@ public class ErasmusRobot {
                 shooterMotor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
             }
             telemetry.addData("Shooter Velocity", shooterMotor.getVelocity());
-            if (Math.abs(targetSpeed - shooterMotor.getVelocity()) < SHOOTERDELTA) {
+            smoothed = (1 - ALPHA) * smoothed + ALPHA * shooterMotor.getVelocity();
+            if (Math.abs(targetSpeed - smoothed) < SHOOTERMARGIN) {
                 telemetry.addData("Time to Shoot", opMode.getRuntime()-startTime) ;
                 return false ;
             }
@@ -298,7 +307,6 @@ public class ErasmusRobot {
 //                if (levelTime == 0) levelTime = opMode.getRuntime();
 //                else if (opMode.getRuntime() > levelTime + LEVELTIME) return false;
 //            } else levelTime = 0;
-            smoothed = (1 - ALPHA) * smoothed + ALPHA * shooterMotor.getVelocity();
             shooterMotor.setPower(targetSpeed * KV + (targetSpeed - smoothed) * KP);
             return true;
         }
@@ -311,8 +319,7 @@ public class ErasmusRobot {
         private double levelTime = 0;
         private double cutoffTime = SHOOTERCUTOFFTIME;
         double smoothed = 0;
-        double pPower = 0 ;
-        double smoothedTarget = 0 ;
+        double slewedTarget ;
         // Constructors
         public ShooterControl2() {
         }
@@ -328,18 +335,14 @@ public class ErasmusRobot {
                 targetSpeed = SHOOTERSPEED;
                 shooterMotor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
             }
-            telemetry.addData("Shooter Velocity", shooterMotor.getVelocity());
-            if (Math.abs(targetSpeed - shooterMotor.getVelocity()) < SHOOTERDELTA) {
+            telemetry.addData("Shooter Speed (Raw)", shooterMotor.getVelocity());
+            smoothed = (1 - ALPHA) * smoothed + ALPHA * shooterMotor.getVelocity();
+            if (Math.abs(targetSpeed - smoothed) < SHOOTERMARGIN) {
                 telemetry.addData("Time to Shoot", opMode.getRuntime()-startTime) ;
                 return false ;
             }
-            smoothedTarget = (1-ALPHA) * smoothedTarget + ALPHA*(targetSpeed ) ;
-            smoothed = (1 - ALPHA) * smoothed + ALPHA * shooterMotor.getVelocity();
-            pPower = smoothedTarget - smoothed ;
-//            pPower = (1-ALPHA)*pPower + ALPHA*(smoothedTarget - smoothed) ;
-            telemetry.addData("pPower" , pPower) ;
-            shooterMotor.setPower(smoothedTarget * KV  +  pPower*KP);
-//            shooterMotor.setPower(targetSpeed * KV + (targetSpeed - smoothed) * KP);
+            slewedTarget = slewSpeed(targetSpeed, smoothed) ;
+            shooterMotor.setPower(slewedTarget * KV + (slewedTarget - smoothed) * KP);
             return true;
         }
     }
@@ -356,7 +359,7 @@ public class ErasmusRobot {
             }
             lastDistanceReading = 0.1*distanceSensor.getDistance(DistanceUnit.INCH) + 0.9*lastDistanceReading ;
 
-            if (lastDistanceReading<3) { //TODO: Because the REV Distance Sensor is a piece of crap
+            if (lastDistanceReading<DISTANCE) { //TODO: Because the REV Distance Sensor is a piece of crap
 //                double startTime = opMode.getRuntime() ;
 //                while (opMode.getRuntime() < startTime + 0.2) {}
                 if (readColorSensorHSV() < 180) greenIndex = indexerCurrentPosition ;

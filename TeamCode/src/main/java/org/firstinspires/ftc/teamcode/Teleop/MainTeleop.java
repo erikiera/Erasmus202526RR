@@ -31,7 +31,7 @@ public final class MainTeleop extends LinearOpMode {
     ErasmusRobot robot ;
     public static double LOWSPEED = 0.3 ;
     public static double HIGHSPEED = 0.8 ;
-    private double speedAdjustment ;
+    private double speedAdjustment = HIGHSPEED ;
     Action currentAction ;
     TelemetryPacket packet = new TelemetryPacket();
 
@@ -48,102 +48,86 @@ public final class MainTeleop extends LinearOpMode {
         waitForStart();
 
         while (opModeIsActive()) {
-
+            // RIGHT TRIGGER ----------------------------------------------------------
             if (gamepad1.right_trigger> 0.2) {
                 if (!rightTriggerPulled) {
                     rightTriggerPulled = true ;
-                    robot.SHOOTERSPEED = SHOOTERSPEED ;
+                    clearAction();
+                    speedAdjustment = LOWSPEED ;
                     currentAction = robot.shootAll() ;
                 }
                 if (nonNull(currentAction) && !currentAction.run(packet)) currentAction = null ;
             } else if (rightTriggerPulled) {
-                currentAction = null ;
-                robot.shutdownShooter();
+                clearAction();
+//                currentAction = null ;
+//                robot.shutdownShooter();
                 rightTriggerPulled = false ;
             }
+            // RIGHT BUMPER  ----------------------------------------------------------
+            if (gamepad1.rightBumperWasPressed()) {
+                clearAction() ;
+                currentAction = robot.shootBlank() ;
+            }
+            if (gamepad1.right_bumper) {
+                if (nonNull(currentAction) && !currentAction.run(packet)) currentAction = null ;
+            }
+            else if (gamepad1.rightBumperWasReleased()) {
+                clearAction();
+            }
 
-
+            // LEFT TRIGGER ----------------------------------------------------------
             if (gamepad1.left_trigger> 0.2) {
                 if (!leftTriggerPulled) {
                     leftTriggerPulled = true ;
+                    clearAction();
+                    speedAdjustment = LOWSPEED ;
                     currentAction = robot.intakeAll() ;
                 }
                 if (nonNull(currentAction) && !currentAction.run(packet)) currentAction = null ;
             } else if (leftTriggerPulled) {
-                robot.stopIntake();
-                currentAction = null ;
+                clearAction();
+//                robot.stopIntake();
+//                currentAction = null ;
                 leftTriggerPulled = false ;
             }
-
+            // (X) ----------------------------------------------------------
             else if (gamepad1.xWasPressed()) robot.huskyReadPattern() ;
-            else if (gamepad1.y) robot.feedServo.setPosition(FEEDERUP);   // B
-            else if (gamepad1.yWasReleased()) robot.feedServo.setPosition(FEEDERDOWN);  // B released
-
+                // (Y) ----------------------------------------------------------
+            else if (gamepad1.y) robot.feedServo.setPosition(FEEDERUP);   // Y held
+            else if (gamepad1.yWasReleased()) robot.feedServo.setPosition(FEEDERDOWN);  // Y released
+            // DPad UP ----------------------------------------------------------
             if (gamepad1.dpadUpWasReleased()) {          // DPad Up released
-                SHOOTERSPEED +=100 ;
-                if (SHOOTERSPEED>2800) SHOOTERSPEED=2800 ;
+                robot.SHOOTERSPEED +=100 ;
+                if (robot.SHOOTERSPEED>2800) robot.SHOOTERSPEED=2800 ;
             } else if (gamepad1.dpadDownWasReleased()) {        // DPad Down released
-                SHOOTERSPEED -= 100;
-                if (SHOOTERSPEED < 0) SHOOTERSPEED = 0;
+                robot.SHOOTERSPEED -= 100;
+                if (robot.SHOOTERSPEED < 0) robot.SHOOTERSPEED = 0;
             }
-
-
+            // DPad RIGHT ----------------------------------------------------------
+            if (gamepad1.dpadRightWasReleased()) {
+                robot.moveIndexer(robot.indexerCurrentPosition+1);
+            }
+            // DPad LEFT ----------------------------------------------------------
+            if (gamepad1.dpadLeftWasReleased()) {
+                robot.moveIndexer(robot.indexerCurrentPosition-1);
+            }
             robot.drive.setDrivePowers(new PoseVelocity2d(
                     new Vector2d(
-                            -gamepad1.left_stick_y,
-                            -gamepad1.left_stick_x
+                            -gamepad1.left_stick_y*speedAdjustment,
+                            -gamepad1.left_stick_x*speedAdjustment
                     ),
-                    -gamepad1.right_stick_x
+                    -gamepad1.right_stick_x*speedAdjustment
             ));
 
-//            // Read pose
-//            Pose2d poseEstimate = robot.drive.localizer.getPose();
-//
-//            // Create a vector from the gamepad x/y inputs
-//            // Then, rotate that vector by the inverse of that heading
-//            Vector2d input = new Vector2d(
-//                    -gamepad1.left_stick_y,
-//                    -gamepad1.left_stick_x
-//            ).rotated(-poseEstimate.heading);
-//            input.angleCast()
-//            // Pass in the rotated input + right stick value for rotation
-//            // Rotation is not part of the rotated input thus must be passed in separately
-//            robot.drive.setDrivePowers(new PoseVelocity2d(
-//                    new Vector2d(
-//                            input.x,
-//                            input.y
-//                    ),
-//                            -gamepad1.right_stick_x
-//            ));
 
-
-
-
-//            if (gamepad1.rightBumperWasPressed()) {             // Right Bumper
-//                shooterMotor.setVelocity(SHOOTERSPEED);
-//            } else if (gamepad1.leftBumperWasPressed()) {       // Left Bumper
-//                shooterMotor.setVelocity(0);
-//            } else if (gamepad1.aWasPressed()) {                // A
-//                shooterMotor.setVelocity(SHOOTERSPEED);
-//            } else if (gamepad1.aWasReleased()) {               // A released
-//                shooterMotor.setVelocity(0);
-//            } else if (gamepad1.dpadUpWasReleased()) {          // DPad Up released
-//                SHOOTERSPEED +=100 ;
-//                if (SHOOTERSPEED>2800) SHOOTERSPEED=2800 ;
-//            } else if (gamepad1.dpadDownWasReleased()) {        // DPad Down released
-//                SHOOTERSPEED -=100 ;
-//                if (SHOOTERSPEED<0) SHOOTERSPEED=0 ;
-//            }
-//            else if (gamepad1.b) feedServo.setPosition(FEEDERUP);   // B
-//            else if (gamepad1.bWasReleased()) feedServo.setPosition(FEEDERDOWN);  // B released
-
-
-            telemetry.addData("Shooter Velocity (OpMode)", SHOOTERSPEED) ;
+            telemetry.addData("Shooter Velocity", robot.SHOOTERSPEED) ;
             telemetry.addData("Motor Velocity = ", robot.shooterMotor.getVelocity()) ;
             telemetry.addData("Index", robot.indexerCurrentPosition) ;
             telemetry.addData("Green Index", robot.greenIndex) ;
             telemetry.addData("Pattern", robot.pattern) ;
-            telemetry.addData("Distance", robot.lastDistanceReading) ;
+            telemetry.addData("Distance Smooth", robot.lastDistanceReading) ;
+            telemetry.addData("Distance Raw", robot.distanceSensor.getDistance(DistanceUnit.INCH)) ;
+
             robot.drive.updatePoseEstimate();
 
             Pose2d pose = robot.drive.localizer.getPose();

@@ -102,14 +102,20 @@ public final class ShooterTeleop extends LinearOpMode {
                 robot.SHOOTERSPEED -= 100;
                 if (robot.SHOOTERSPEED < 0) robot.SHOOTERSPEED = 0;
             }
-
-
+            // DPad RIGHT ----------------------------------------------------------
+            if (gamepad1.dpadRightWasReleased()) {
+                robot.moveIndexer(robot.indexerCurrentPosition+1);
+            }
+            // DPad LEFT ----------------------------------------------------------
+             if (gamepad1.dpadLeftWasReleased()) {
+                 robot.moveIndexer(robot.indexerCurrentPosition-1);
+             }
             robot.drive.setDrivePowers(new PoseVelocity2d(
                     new Vector2d(
-                            -gamepad1.left_stick_y,
-                            -gamepad1.left_stick_x
+                            -gamepad1.left_stick_y*speedAdjustment,
+                            -gamepad1.left_stick_x*speedAdjustment
                     ),
-                    -gamepad1.right_stick_x
+                    -gamepad1.right_stick_x*speedAdjustment
             ));
 
 //
